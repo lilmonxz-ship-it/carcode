@@ -9,22 +9,37 @@
 #define CHARACTERISTIC_UUID_TX "6E400003-B5A3-F393-E0A9-E50E24DCCA9E" 
 
 // --- กำหนดขามอเตอร์ ---
-const int AIN1 = 25, AIN2 = 26; // ซ้าย
-const int BIN1 = 27, BIN2 = 14; // ขวา
-const int STBY = 22; 
+const int PWMA = 14; // ความเร็วมอเตอร์ซ้าย
+const int AIN2 = 12; // ทิศทางมอเตอร์ซ้าย
+const int AIN1 = 32; // ทิศทางมอเตอร์ซ้าย
+const int STBY = 33; // เปิดการทำงานชิปมอเตอร์
+const int BIN1 = 25; // ทิศทางมอเตอร์ขวา
+const int BIN2 = 26; // ทิศทางมอเตอร์ขวา
+const int PWMB = 27; // ความเร็วมอเตอร์ขวา
 
-// --- กำหนดขาสำหรับเซนเซอร์ TCRT5000 Array (5 ช่อง) ---
-const int IR_L2 = 34; // เซนเซอร์ซ้ายสุด
-const int IR_L1 = 35; // เซนเซอร์ซ้ายใน
-const int IR_C  = 32; // เซนเซอร์ตรงกลาง
-const int IR_R1 = 33; // เซนเซอร์ขวาใน
-const int IR_R2 = 21; // เซนเซอร์ขวาสุด
+// --- กำหนดขาสำหรับเซนเซอร์ TCRT5000 Array (ยังไม่กำหนดพินจริง) ---
+// *** ให้เปลี่ยนเลข 0 เป็นหมายเลขพินที่คุณต่อสายไว้เมื่อพร้อมนะครับ ***
+const int IR_OUT2 = 0; // เซนเซอร์ Output 2 (ซ้าย)
+const int IR_OUT4 = 0; // เซนเซอร์ Output 4 (ขวา)
 
+
+// --- ตั้งค่าระบบควบคุม ---
 bool isAutoMode = false; 
-unsigned long lastPrintTime = 0; // ตัวแปรสำหรับตั้งเวลาโชว์ข้อความ
+unsigned long lastPrintTime = 0; 
+int motorSpeed = 180  ; // (ปรับได้ 0-255)
 
-// ฟังก์ชันสั่งมอเตอร์ขับเคลื่อน
+// --- ฟังก์ชันสั่งมอเตอร์ขับเคลื่อน ---
 void moveRobot(int a1, int a2, int b1, int b2) {
+  // ตรวจสอบว่าถ้าสั่งหยุด (0,0,0,0) ให้ตัดไฟ PWM ทันที
+  if (a1 == 0 && a2 == 0 && b1 == 0 && b2 == 0) {
+    analogWrite(PWMA, 0); 
+    analogWrite(PWMB, 0);
+  } else {
+    // จ่ายไฟแบบลดความเร็ว (Soft Start)
+    analogWrite(PWMA, motorSpeed); 
+    analogWrite(PWMB, motorSpeed); 
+  }
+  
   digitalWrite(AIN1, a1); 
   digitalWrite(AIN2, a2); 
   digitalWrite(BIN1, b1); 
@@ -54,9 +69,9 @@ class MyCallbacks: public BLECharacteristicCallbacks {
             Serial.println("=============================");
             Serial.println(">>> AUTO MODE : OFF (STOP) <<<");
             Serial.println("=============================");
-          }       
+          }        
 
-          // โหมดบังคับมือ (ลูกศร)
+          // โหมดบังคับมือ
           else if (!isAutoMode) {
             if (button == '5') { Serial.println("Manual: FORWARD"); moveRobot(1, 0, 1, 0); }      
             else if (button == '6') { Serial.println("Manual: BACKWARD"); moveRobot(0, 1, 0, 1); } 
@@ -68,7 +83,7 @@ class MyCallbacks: public BLECharacteristicCallbacks {
         else if (state == '0') {
           if (!isAutoMode && button >= '5' && button <= '8') {
             Serial.println("Manual: STOP (Key Released)");
-            moveRobot(0, 0, 0, 0);
+            moveRobot(0, 0, 0, 0); 
           }
         }
       }
@@ -79,14 +94,17 @@ void setup() {
   Serial.begin(115200);
 
   // 1. ตั้งค่าพินล้อ
+  pinMode(PWMA, OUTPUT); pinMode(PWMB, OUTPUT);
   pinMode(AIN1, OUTPUT); pinMode(AIN2, OUTPUT);
   pinMode(BIN1, OUTPUT); pinMode(BIN2, OUTPUT);
-  pinMode(STBY, OUTPUT); digitalWrite(STBY, HIGH); 
+  pinMode(STBY, OUTPUT); 
+  
+  digitalWrite(STBY, HIGH); 
 
-  // 2. ตั้งค่าพินเซนเซอร์
-  pinMode(IR_L2, INPUT); pinMode(IR_L1, INPUT);
-  pinMode(IR_C,  INPUT); pinMode(IR_R1, INPUT);
-  pinMode(IR_R2, INPUT);
+  // 2. ตั้งค่าพินเซนเซอร์ (ถ้าพร้อมใส่พินแล้ว อย่าลืมมาตรวจสอบตรงนี้นะครับ)
+  pinMode(IR_OUT2, INPUT); 
+  pinMode(IR_OUT4, INPUT);
+  pinMode(IR_OUT3, INPUT);
 
   // 3. เริ่มต้นระบบ BLE
   Serial.println("System Booting...");
@@ -95,15 +113,15 @@ void setup() {
   BLEService *pService = pServer->createService(SERVICE_UUID);
   
   BLECharacteristic *pRxCharacteristic = pService->createCharacteristic(
-                       CHARACTERISTIC_UUID_RX,
-                       BLECharacteristic::PROPERTY_WRITE
-                     );
+                         CHARACTERISTIC_UUID_RX,
+                         BLECharacteristic::PROPERTY_WRITE
+                       );
   pRxCharacteristic->setCallbacks(new MyCallbacks());
 
   BLECharacteristic *pTxCharacteristic = pService->createCharacteristic(
-                       CHARACTERISTIC_UUID_TX,
-                       BLECharacteristic::PROPERTY_NOTIFY
-                     );
+                         CHARACTERISTIC_UUID_TX,
+                         BLECharacteristic::PROPERTY_NOTIFY
+                       );
   pTxCharacteristic->addDescriptor(new BLE2902());
 
   pService->start();
@@ -112,45 +130,42 @@ void setup() {
 }
 
 void loop() {
-  // --- ลอจิกการเดินตามเส้นอัตโนมัติ ---
+   // ลอจิกการเดินตามเส้นอัตโนมัติแบบ 2 เซนเซอร์
   if (isAutoMode) {
-    int l2 = digitalRead(IR_L2);
-    int l1 = digitalRead(IR_L1);
-    int c  = digitalRead(IR_C);
-    int r1 = digitalRead(IR_R1);
-    int r2 = digitalRead(IR_R2);
+    int out2 = digitalRead(IR_OUT2); // อ่านค่าซ้าย
+    int out4 = digitalRead(IR_OUT4); // อ่านค่าขวา
+    //int out3 = digitalRead(IR_OUT3);
+    String action = ""; 
 
-    String action = ""; // ตัวแปรเก็บข้อความสถานะการขับ
-
-    // ตัดสินใจเลี้ยว
-    if (c == 1) {
+  
+    if (out2 == 0 && out4 == 0) {
+    
       moveRobot(1, 0, 1, 0); 
       action = "FORWARD";
     } 
-    else if (l1 == 1 || l2 == 1) {
+    else if (out2 == 1 && out4 == 0) {
+     
       moveRobot(0, 1, 1, 0); 
       action = "TURN LEFT";
     } 
-    else if (r1 == 1 || r2 == 1) {
+    else if (out2 == 0 && out4 == 1) {
+      
       moveRobot(1, 0, 0, 1); 
       action = "TURN RIGHT";
     } 
-    else {
+    else if (out2 == 1 && out4 == 1) {
+      
       moveRobot(0, 0, 0, 0); 
-      action = "STOP (Line Lost)";
+      action = "STOP (Intersection)";
     }
 
-    // --- ส่วนแสดงผลบน Serial Monitor (ปริ้นทุกๆ 200 มิลลิวินาที) ---
+   
     if (millis() - lastPrintTime >= 200) {
       lastPrintTime = millis();
-      // ปริ้นค่าเซนเซอร์ออกมาดู ว่าตัวไหนเจอเส้นดำบ้าง (1 = เจอสีดำ, 0 = สีขาว)
-      Serial.print("Sensors [L2 L1 C R1 R2]: [");
-      Serial.print(l2); Serial.print(" ");
-      Serial.print(l1); Serial.print(" ");
-      Serial.print(c);  Serial.print(" ");
-      Serial.print(r1); Serial.print(" ");
-      Serial.print(r2); Serial.print("] -> ");
-      Serial.println(action); // ปริ้นทิศทางที่รถตัดสินใจไป
+      Serial.print("Sensors [OUT2 OUT4]: [");
+      Serial.print(out2); Serial.print(" ");
+      Serial.print(out4); Serial.print("] -> ");
+      Serial.println(action); 
     }
   }
-}
+} 
